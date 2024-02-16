@@ -18,7 +18,7 @@ class Head(nn.Module):
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
-        w = k @ q.transpose(-2, -1) / (C ** 0.5)
+        w = k @ q.transpose(-2, -1) / (k.shape[-1] ** 0.5)
         w = w.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
         w = F.softmax(w, dim=-1)
         w = self.dropout(w)
@@ -30,14 +30,17 @@ class Multihead(nn.Module):
     def __init__(self, n_embd, n_head,block_size, dropout=0.1, bias=False):
         super().__init__()
         self.heads = nn.ModuleList([Head(n_embd, n_head,block_size, dropout, bias) for _ in range(n_head)])
+        self.proj = nn.Linear(n_embd, n_embd)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         a = torch.cat([h(x) for h in self.heads], dim=-1)
+        a = self.dropout(self.proj(a))
         return a
 
 
 class Block(nn.Module):
-    def __init__(self, n_head, n_embd,block_size, dropout=0.1, bias=False):
+    def __init__(self, n_head, n_embd, block_size, dropout=0.1, bias=False):
         super().__init__()
         self.atten = Multihead(n_embd, n_head,block_size, dropout, bias)
         self.ln_1 = nn.LayerNorm(n_embd)
@@ -50,12 +53,9 @@ class Block(nn.Module):
         self.ln_2 = nn.LayerNorm(n_embd)
 
     def forward(self, x):
-        x = x + self.atten(x)
-        x = self.ln_1(x)
-        x = x + self.mlp(x)
-        x = self.ln_2(x)
+        x = x + self.atten(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
         return x
-
 
 class GPT(nn.Module):
     def __init__(self, vocab_size, block_size, n_layer, n_head, n_embd, dropout=0.1, bias=False):
@@ -74,38 +74,40 @@ class GPT(nn.Module):
             module.weight.data.normal_(mean=0.0, std=0.02)
             if isinstance(module, nn.Linear) and module.bias is not None:
                 module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
+        # elif isinstance(module, nn.LayerNorm):
+        #     module.bias.data.zero_()
+        #     module.weight.data.fill_(1.0)
 
     def forward(self, x, y=None):
-        pos_emb = self.pos_emb(torch.arange(self.block_size, device=x.device))
-
+        pos_emb = self.pos_emb(torch.arange(0, self.block_size, device=x.device))
         x = self.tok_emb(x) + pos_emb
         x = self.drop(x)
         x = self.blocks(x)
         x = self.ln_f(x)
-        x = self.lm_head(x) # (B, T, vocab_size)
         if y is not None:
             B, T = y.shape
             x = x.view(B * T, -1)
             y = y.view(B * T)
             loss = F.cross_entropy(x, y)
+            x = self.lm_head(x)  # (B, T, vocab_size)
         else:
             loss = None
+            x = self.lm_head(x[:, [-1], :])
         return x, loss
 
     def generate(self, x, max_token, temperature=1.0, top_k=None):
-        for _ in range(max_token):
-            x = x[-self.block_size:]
-            logits = self.forward(x)
+        for i in range(max_token):
+            assert x.shape[1] >= self.block_size, 'input length should be greater than block size'
+            idx = x[:, -self.block_size:]
+            logits, _ = self(idx)
             logits = logits[:,-1,:] / temperature
             if top_k is not None:
-                logits, _ = logits.topk(top_k, dim=-1)
-            probs = torch.softmax(logits, dim=-1)
+                v, _ = torch.topk(logits, min(top_k, logits.shape[1]), dim=-1)
+                # 小于v的位置设置为负无穷
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            probs = F.softmax(logits, dim=-1)
             # multinomial找到概率最大的位置
-            x = torch.cat([x, torch.multinomial(probs, 1)], dim=-1)
-            print(torch.multinomial(probs, 1))
+            x = torch.cat((x, torch.multinomial(probs, 1)), dim=1)
         return x
 
     def configure_optimizers(self, learning_rate, weight_decay=0.1, betas=(0.9, 0.95)):
