@@ -8,16 +8,16 @@ import argparse
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-learning_rate = 6e-4
-n_epoch = 600000
-eval_interval = 2000
+learning_rate = 3e-4
+n_epoch = 3000
+eval_interval = 500
 eval_iter = 200
-block_size = 32
-n_layer = 12
-n_head = 12
-n_embd = 768
+block_size = 256
 batch_size = 8
-dropout = 0.1
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.2
 beta1 = 0.9
 beta2 = 0.95
 weight_decay = 0.1

@@ -4,7 +4,7 @@ from model import GPT
 
 
 temperature = 0.8
-top_k = 200
+top_k = 4
 max_token = 200
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -31,10 +31,11 @@ stoi = meta['stoi']
 
 encode = lambda x: [stoi[ch] for ch in x]
 decode = lambda x: ''.join([itos[i] for i in x])
-
-start = "First Citizen: "
-x = encode(start)
-x = torch.tensor(x, dtype=torch.long, device=device).view(1, -1) # (B, T)
+#
+# start = "First Citizen: "
+# x = encode(start)
+# x = torch.tensor(x, dtype=torch.long, device=device).view(1, -1) # (B, T)
+x = torch.zeros((1, 1), dtype=torch.long, device=device)
 
 with torch.no_grad():
     y = model.generate(x, max_token, temperature, top_k)

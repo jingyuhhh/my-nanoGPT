@@ -79,25 +79,23 @@ class GPT(nn.Module):
         #     module.weight.data.fill_(1.0)
 
     def forward(self, x, y=None):
-        pos_emb = self.pos_emb(torch.arange(0, self.block_size, device=x.device))
+        B, T = x.shape
+        pos_emb = self.pos_emb(torch.arange(0, T, device=x.device))
         x = self.tok_emb(x) + pos_emb
         x = self.drop(x)
         x = self.blocks(x)
         x = self.ln_f(x)
+        x = self.lm_head(x)
         if y is not None:
-            B, T = y.shape
             x = x.view(B * T, -1)
             y = y.view(B * T)
             loss = F.cross_entropy(x, y)
-            x = self.lm_head(x)  # (B, T, vocab_size)
         else:
             loss = None
-            x = self.lm_head(x[:, [-1], :])
         return x, loss
 
     def generate(self, x, max_token, temperature=1.0, top_k=None):
         for i in range(max_token):
-            assert x.shape[1] >= self.block_size, 'input length should be greater than block size'
             idx = x[:, -self.block_size:]
             logits, _ = self(idx)
             logits = logits[:,-1,:] / temperature
